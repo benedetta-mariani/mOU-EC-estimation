@@ -1,4 +1,4 @@
-"""Minimal mOU pipeline: empirical tau selection by corr(J_raw, Q1)."""
+"""Fit mOU models across tau; select tau separately in the notebook."""
 from pathlib import Path
 import sys
 import numpy as np
@@ -99,7 +99,7 @@ def select_tau(taus, Js, Q1, iterations, stable, max_iter):
                 tau_opt=np.asarray(taus[best] if best >= 0 else np.nan))
 
 
-def estimate_q1(data, taus, tr=0.72, bandpass=(0.01, 0.1), n_regions=100,
+def fit_tau_grid(data, taus, tr=0.72, bandpass=(0.01, 0.1), n_regions=100,
                 mapping=None, max_iter=100, eta_C=0.005):
     """Fit independently at each tau; do not refit the selected estimate."""
     X = prepare_timeseries(data, tr, bandpass, n_regions, mapping)
@@ -130,15 +130,25 @@ def estimate_q1(data, taus, tr=0.72, bandpass=(0.01, 0.1), n_regions=100,
                 stable[i] = np.linalg.eigvals(J).real.max() < 0
         except (ValueError, FloatingPointError, np.linalg.LinAlgError, UnboundLocalError, OverflowError) as exc:
             errors[i] = type(exc).__name__ + ': ' + str(exc)
-    selected = select_tau(taus, Js, Q1, iterations, stable, max_iter)
-    best = int(selected['best_index'])
-    empty = np.full_like(Q0, np.nan)
+    # Return the fitted grid without choosing tau or computing asymmetries.
     return dict(taus=taus, J_grid=Js, Sigma_grid=Sigmas, iterations=iterations,
                 stable=stable, distance=distances, errors=np.asarray(errors), Q0=Q0, Q1=Q1,
-                J_raw=Js[best] if best >= 0 else empty,
-                J_target_source=Js[best].T if best >= 0 else empty,
-                Sigma=Sigmas[best] if best >= 0 else empty,
-                tr=np.asarray(tr), max_iter=np.asarray(max_iter), **selected)
+                tr=np.asarray(tr), max_iter=np.asarray(max_iter))
+
+
+def estimate_q1(*args, **kwargs):
+    """Legacy Q1 selection, retained for older notebooks only."""
+    fitted = fit_tau_grid(*args, **kwargs)
+    selected = select_tau(fitted['taus'], fitted['J_grid'], fitted['Q1'],
+                          fitted['iterations'], fitted['stable'], int(fitted['max_iter']))
+    best = int(selected['best_index'])
+    empty = np.full_like(fitted['Q0'], np.nan)
+    fitted.update(selected)
+    fitted.update(J_raw=fitted['J_grid'][best] if best >= 0 else empty,
+                  J_target_source=fitted['J_grid'][best].T if best >= 0 else empty,
+                  Sigma=fitted['Sigma_grid'][best] if best >= 0 else empty)
+    return fitted
+
 
 
 def plot_result(result):
